@@ -1,0 +1,11 @@
+{
+  "name": "@patana/validation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/schemas.ts",
+  "types": "src/schemas.ts",
+  "scripts": { "lint":"tsc --noEmit","build":"tsc --noEmit" },
+  "dependencies": { "zod":"^3.23.8" },
+  "devDependencies": { "typescript":"^5.4.5","@types/node":"^20.12.12" }
+}

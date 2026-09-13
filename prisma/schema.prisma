@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// Enums — fix: replace free-text status with typed enums
+// ──────────────────────────────────────────────
+enum UserRole {
+  GUEST
+  OWNER
+  ADMIN
+}
+
+enum OwnerStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum PropertyType {
+  HOTEL
+  APARTMENT
+}
+
+enum UnitStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CASH
+}
+
+// ──────────────────────────────────────────────
+// 7-table ERD
+// ──────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String
+  name         String
+  phone        String?
+  passwordHash String?
+  role         UserRole  @default(GUEST)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft-delete prep
+
+  owner    Owner?
+  bookings Booking[]
+
+  @@unique([email]) // fix: unique email
+  @@index([email])
+}
+
+model Owner {
+  id        String      @id @default(uuid()) @db.Uuid
+  userId    String      @unique @db.Uuid // fix: 1:0..1 enforced via @unique
+  status    OwnerStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  properties Property[]
+
+  @@index([userId])
+}
+
+model Property {
+  id           String       @id @default(uuid()) @db.Uuid
+  ownerId      String       @db.Uuid
+  title        String
+  description  String?
+  propertyType PropertyType
+  address      String?
+  city         String?
+  country      String       @default("CD")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft-delete prep
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  units Unit[]
+
+  @@index([ownerId])
+}
+
+model Unit {
+  id          String     @id @default(uuid()) @db.Uuid
+  propertyId  String     @db.Uuid
+  title       String
+  description String?
+  capacity    Int // CHECK: capacity > 0
+  basePrice   Decimal    @db.Decimal(10, 2) // CHECK: basePrice >= 0
+  status      UnitStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft-delete prep
+
+  property       Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  availabilities Availability[]
+  bookings       Booking[]
+
+  @@index([propertyId])
+}
+
+model Availability {
+  id            String   @id @default(uuid()) @db.Uuid
+  unitId        String   @db.Uuid
+  date          DateTime @db.Date
+  priceOverride Decimal? @db.Decimal(10, 2) // nullable override
+  isAvailable   Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([unitId, date]) // fix: one row per unit per date
+  @@index([unitId, date])
+}
+
+model Booking {
+  id         String        @id @default(uuid()) @db.Uuid
+  userId     String        @db.Uuid
+  unitId     String        @db.Uuid
+  checkIn    DateTime      @db.Date // CHECK: checkOut > checkIn enforced in app + exclusion
+  checkOut   DateTime      @db.Date
+  guests     Int // CHECK: guests > 0 and <= Unit.capacity (app)
+  status     BookingStatus @default(PENDING)
+  currency   String        @default("CDF") // fix: explicit currency
+  totalPrice Decimal?      @db.Decimal(10, 2) // CHECK: totalPrice >= 0
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft-delete prep
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit     Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([userId])
+  @@index([unitId])
+  // Overlap prevention: see migration EXCLUDE USING gist + app guard in booking.service.ts
+}
+
+model Payment {
+  id             String        @id @default(uuid()) @db.Uuid
+  bookingId      String        @db.Uuid
+  amount         Decimal       @db.Decimal(10, 2) // CHECK: amount >= 0
+  currency       String        @default("CDF") // fix: explicit currency
+  method         PaymentMethod
+  status         PaymentStatus @default(PENDING)
+  idempotencyKey String?       @unique // fix: idempotency
+  providerRef    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}

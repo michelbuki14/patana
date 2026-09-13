@@ -1,0 +1,49 @@
+{
+  "name": "patana-booking",
+  "version": "1.0.0",
+  "description": "Patana booking backend \u2014 7-table ERD with production fixes (enums, uniques, overlap prevention, currency, idempotency)",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "ts-node prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "lint": "tsc --noEmit",
+    "postinstall": "prisma generate"
+  },
+  "keywords": [
+    "booking",
+    "prisma",
+    "postgres",
+    "patana"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "prisma": "^5.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "prisma@5.22.0": true
+  },
+  "workspaces": [
+    "patana/apps/*",
+    "patana/packages/*",
+    "patana-api"
+  ],
+  "private": true
+}

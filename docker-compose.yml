@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: patana-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: patana
+      POSTGRES_PASSWORD: patana_secret
+      POSTGRES_DB: patana
+    ports:
+      - "5432:5432"
+    volumes:
+      - patana_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patana -d patana"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  patana_pgdata:

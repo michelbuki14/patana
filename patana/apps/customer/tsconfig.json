@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@patana/ui": [
+        "../../packages/ui/src"
+      ],
+      "@patana/theme": [
+        "../../packages/theme/src"
+      ],
+      "@patana/api-client": [
+        "../../packages/api-client/src"
+      ],
+      "@patana/types": [
+        "../../packages/types/src"
+      ],
+      "@patana/validation": [
+        "../../packages/validation/src"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

@@ -1,0 +1,4 @@
+packages:
+  - 'patana/apps/*'
+  - 'patana/packages/*'
+  - 'patana-api'
