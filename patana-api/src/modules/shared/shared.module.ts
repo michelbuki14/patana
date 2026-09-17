@@ -1,15 +1,16 @@
-import { Module, Global } from '@nestjs/common';
-import { EventBusService } from './event-bus/event-bus.service';
-import { AuthService } from './auth/auth.service';
+import { Module } from '@nestjs/common';
 import { AuthController } from './auth/auth.controller';
-import { MediaService } from './media/media.service';
+import { AuthService } from './auth/auth.service';
+import { EventBusService } from './event-bus/event-bus.service';
 import { MediaController } from './media/media.controller';
+import { MediaService } from './media/media.service';
 import { NotificationsService } from './notifications/notifications.service';
+import { HealthModule } from './health/health.module';
 
-@Global()
 @Module({
   controllers: [AuthController, MediaController],
-  providers: [EventBusService, AuthService, MediaService, NotificationsService],
-  exports: [EventBusService, AuthService, MediaService],
+  imports: [HealthModule],
+  providers: [AuthService, EventBusService, MediaService, NotificationsService],
+  exports: [EventBusService, MediaService, NotificationsService, AuthService],
 })
 export class SharedModule {}

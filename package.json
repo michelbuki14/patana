@@ -1,7 +1,7 @@
 {
   "name": "patana-booking",
   "version": "1.0.0",
-  "description": "Patana booking backend \u2014 7-table ERD with production fixes (enums, uniques, overlap prevention, currency, idempotency)",
+  "description": "Patana booking backend — 7-table ERD with production fixes (enums, uniques, overlap prevention, currency, idempotency)",
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
@@ -27,8 +27,11 @@
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.12.12",
+    "jest": "^30.5.1",
     "prisma": "^5.14.0",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   },
