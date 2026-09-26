@@ -7,15 +7,17 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "src",
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "types": ["node"]
   },
-  "include": ["src/**/*", "prisma/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -8,8 +8,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT') || 3001;
   app.enableCors();
-  app.setGlobalPrefix('api');
   await app.listen(port);
-  console.log(`Patana API listening on http://localhost:${port}/api`);
+  console.log(`Patana backend listening on port ${port}`);
 }
 void bootstrap();

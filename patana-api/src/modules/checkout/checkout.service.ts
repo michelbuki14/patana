@@ -1,21 +1,58 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../shared/prisma/prisma.service';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+import { EventBusService } from '../shared/event-bus/event-bus.service';
 
 @Injectable()
 export class CheckoutService {
-  // checkout schema: Payment — idempotencyKey @unique
-  async createPayment(dto: { bookingId: string; amount: string; currency?: string; method: string; idempotencyKey?: string }): Promise<unknown> {
-    // Real impl: findUnique by idempotencyKey -> return existing if same payload else 409; else create PENDING and call provider
-    if (dto.idempotencyKey) {
-      // stub idempotency check
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
+  ) {}
+
+  async createPayment(dto: CreatePaymentDto) {
+    const idempotencyKey = dto.idempotencyKey ?? `key-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const existing = await this.prisma.payment.findUnique({ where: { idempotencyKey } });
+    if (existing && existing.bookingId === dto.bookingId) return existing;
+
+    return this.prisma.payment.create({
+      data: {
+        bookingId: dto.bookingId,
+        amount: dto.amount,
+        currency: dto.currency ?? 'CDF',
+        method: dto.method,
+        idempotencyKey,
+        status: 'PENDING',
+      },
+    });
+  }
+
+  async listPayments(bookingId: string) {
+    return this.prisma.payment.findMany({ where: { bookingId } });
+  }
+
+  async getPayment(id: string) {
+    return this.prisma.payment.findUnique({ where: { id } });
+  }
+
+  async confirmPayment(id: string, body: { status?: string; providerRef?: string }) {
+    const payment = await this.prisma.payment.update({
+      where: { id },
+      data: { status: body.status ?? 'SUCCEEDED', providerRef: body.providerRef },
+    });
+
+    if (payment.status === 'SUCCEEDED') {
+      this.eventBus.emitEvent('payment.succeeded', payment);
+
+      await this.prisma.booking.update({
+        where: { id: payment.bookingId },
+        data: { status: 'CONFIRMED' },
+      });
+
+      this.eventBus.emitEvent('booking.confirmed', { bookingId: payment.bookingId });
     }
-    return { id: 'stub-payment-id', ...dto, status: 'PENDING', currency: dto.currency ?? 'CDF' };
-  }
-  async listPayments(bookingId?: string): Promise<unknown[]> {
-    return [{ bookingId, payments: [] }];
-  }
-  async getPayment(id: string): Promise<unknown> { return { id, status: 'PENDING' }; }
-  async confirmPayment(id: string, body: { status: string; providerRef?: string }): Promise<unknown> {
-    // On SUCCEEDED -> emit booking.confirmed via EventBus, transition Booking PENDING->CONFIRMED transactionally
-    return { id, ...body };
+
+    return payment;
   }
 }

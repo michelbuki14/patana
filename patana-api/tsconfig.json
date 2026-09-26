@@ -16,8 +16,14 @@
     "rootDir": "src",
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "types": ["node"]
+    "types": ["node", "jest"],
+    "paths": {
+      "@patana/shared": ["./src/modules/shared"],
+      "@patana/catalog": ["./src/modules/catalog"],
+      "@patana/booking": ["./src/modules/booking"],
+      "@patana/checkout": ["./src/modules/checkout"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules","dist"]
+  "exclude": ["node_modules", "dist"]
 }

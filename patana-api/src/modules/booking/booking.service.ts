@@ -1,26 +1,14 @@
 import { Injectable } from '@nestjs/common';
-/**
- * Patana Booking Service — pure functions + transactional reserve pattern
- *
- * Fixes applied:
- * - Overlap prevention (application guard + DB exclusion in migration)
- * - CHECK: checkOut > checkIn, guests >0 && <= capacity, amount >=0
- * - Currency explicit (CDF default)
- * - Availability window validation (all dates must have isAvailable=true)
- * - Idempotency via Payment.idempotencyKey
- */
-
-// ───────────────── helpers ─────────────────
-
-export type DateRange = { checkIn: Date; checkOut: Date };
+import { PrismaService } from '../shared/prisma/prisma.service';
+import { CreateBookingDto } from './dto/create-booking.dto';
+import { EventBusService } from '../shared/event-bus/event-bus.service';
 
 export function nightsBetween(checkIn: Date, checkOut: Date): number {
   const ms = checkOut.getTime() - checkIn.getTime();
   return Math.round(ms / (1000 * 60 * 60 * 24));
 }
 
-export function isOverlapping(a: DateRange, b: DateRange): boolean {
-  // [checkIn, checkOut) — checkout day is exclusive
+export function isOverlapping(a: { checkIn: Date; checkOut: Date }, b: { checkIn: Date; checkOut: Date }): boolean {
   return a.checkIn < b.checkOut && b.checkIn < a.checkOut;
 }
 
@@ -30,38 +18,20 @@ export function datesInRange(checkIn: Date, checkOut: Date): Date[] {
   for (let i = 0; i < nights; i++) {
     const d = new Date(checkIn);
     d.setDate(checkIn.getDate() + i);
-    d.setHours(0, 0, 0, 0);
+    d.setUTCHours(0, 0, 0, 0);
     dates.push(d);
   }
   return dates;
 }
 
-// ───────────────── price ─────────────────
-
-export type AvailabilityRow = {
-  date: Date;
-  priceOverride: number | null; // Decimal -> number
-  isAvailable: boolean;
-};
-
-/**
- * Calculate total price: sum per night of (priceOverride ?? basePrice)
- * CHECK: totalPrice >= 0, nights > 0
- */
-export function calculateTotalPrice(
-  checkIn: Date,
-  checkOut: Date,
-  basePrice: number,
-  availabilities: AvailabilityRow[]
-): number {
+export function calculateTotalPrice(checkIn: Date, checkOut: Date, basePrice: number, availabilities: Array<{ date: Date; priceOverride?: number | null }>): number {
   if (checkOut <= checkIn) throw new Error('checkOut must be after checkIn');
   const nights = nightsBetween(checkIn, checkOut);
   if (nights <= 0) throw new Error('Booking must be at least 1 night');
 
-  const map = new Map<string, AvailabilityRow>();
+  const map = new Map<string, typeof availabilities[0]>();
   for (const a of availabilities) {
-    const key = new Date(a.date).toISOString().slice(0, 10);
-    map.set(key, a);
+    map.set(a.date.toISOString().slice(0, 10), a);
   }
 
   let total = 0;
@@ -76,124 +46,128 @@ export function calculateTotalPrice(
   return Math.round(total * 100) / 100;
 }
 
-// ───────────────── canBook ─────────────────
-
-export type UnitForBooking = {
-  capacity: number;
-  basePrice: number;
-  status: string; // UnitStatus
-};
-
-export type ExistingBooking = DateRange & { status: string };
-
-export type CanBookInput = {
-  unit: UnitForBooking;
+export interface CanBookInput {
+  unit: { capacity: number; status: string };
   checkIn: Date;
   checkOut: Date;
   guests: number;
-  availabilities: AvailabilityRow[];
-  existingBookings: ExistingBooking[];
-};
+  availabilities: Array<{ date: Date; isAvailable: boolean }>;
+  existingBookings: Array<{ status: string; checkIn: Date; checkOut: Date }>;
+}
 
-export type CanBookResult = { ok: true } | { ok: false; reason: string };
-
-export function canBook(input: CanBookInput): CanBookResult {
+export function canBook(input: CanBookInput): { ok: boolean; reason?: string } {
   const { unit, checkIn, checkOut, guests, availabilities, existingBookings } = input;
 
-  // CHECK: date order
   if (!(checkIn instanceof Date) || !(checkOut instanceof Date)) return { ok: false, reason: 'Invalid dates' };
   if (checkOut <= checkIn) return { ok: false, reason: 'checkOut must be after checkIn' };
-  if (nightsBetween(checkIn, checkOut) <= 0) return { ok: false, reason: 'At least 1 night required' };
-  if (nightsBetween(checkIn, checkOut) > 365) return { ok: false, reason: 'Booking too long (max 365 nights)' };
-
-  // CHECK: capacity
+  const nights = nightsBetween(checkIn, checkOut);
+  if (nights <= 0) return { ok: false, reason: 'At least 1 night required' };
+  if (nights > 365) return { ok: false, reason: 'Booking too long (max 365 nights)' };
   if (!Number.isInteger(guests) || guests <= 0) return { ok: false, reason: 'guests must be positive integer' };
   if (guests > unit.capacity) return { ok: false, reason: `guests (${guests}) exceeds capacity (${unit.capacity})` };
-
-  // CHECK: unit active
   if (unit.status !== 'ACTIVE') return { ok: false, reason: `Unit not active (status=${unit.status})` };
+  if (availabilities.length < nights) return { ok: false, reason: 'Incomplete availability window' };
 
-  // CHECK: availability rows cover full range and all isAvailable=true
-  const needed = datesInRange(checkIn, checkOut);
-  if (availabilities.length < needed.length) return { ok: false, reason: 'Incomplete availability window' };
-  const availMap = new Map<string, AvailabilityRow>();
-  for (const a of availabilities) availMap.set(new Date(a.date).toISOString().slice(0, 10), a);
-  for (const d of needed) {
-    const key = d.toISOString().slice(0, 10);
-    const row = availMap.get(key);
-    if (!row) return { ok: false, reason: `Missing availability for ${key}` };
-    if (!row.isAvailable) return { ok: false, reason: `Date ${key} is not available` };
+  const availMap = new Map<string, typeof availabilities[0]>();
+  for (const a of availabilities) availMap.set(a.date.toISOString().slice(0, 10), a);
+  for (const d of datesInRange(checkIn, checkOut)) {
+    const row = availMap.get(d.toISOString().slice(0, 10));
+    if (!row) return { ok: false, reason: `Missing availability for ${d.toISOString().slice(0, 10)}` };
+    if (!row.isAvailable) return { ok: false, reason: `Date ${d.toISOString().slice(0, 10)} is not available` };
   }
 
-  // CHECK: overlapping bookings (only PENDING/CONFIRMED block)
   const blockingStatuses = new Set(['PENDING', 'CONFIRMED']);
-  const reqRange: DateRange = { checkIn, checkOut };
+  const reqRange = { checkIn, checkOut };
   for (const b of existingBookings) {
     if (!blockingStatuses.has(b.status)) continue;
-    if (isOverlapping(reqRange, b)) return { ok: false, reason: `Overlaps existing booking ${b.status} ${b.checkIn.toISOString().slice(0, 10)} -> ${b.checkOut.toISOString().slice(0, 10)}` };
+    if (isOverlapping(reqRange, b)) return { ok: false, reason: `Overlaps existing booking ${b.status}` };
   }
 
   return { ok: true };
 }
 
-// ───────────────── reserve (transaction pattern) ─────────────────
-
-/**
- * Transactional reserve pattern — use with Prisma $transaction.
- *
- * ```ts
- * await prisma.$transaction(async (tx) => {
- *   const unit = await tx.unit.findUnique({ where: { id: unitId } });
- *   const availabilities = await tx.availability.findMany({ where: { unitId, date: { gte: checkIn, lt: checkOut } } });
- *   const existing = await tx.booking.findMany({ where: { unitId, status: { in: ['PENDING','CONFIRMED'] } } });
- *   const check = canBook({ unit, checkIn, checkOut, guests, availabilities, existingBookings: existing });
- *   if (!check.ok) throw new Error(check.reason);
- *   const total = calculateTotalPrice(checkIn, checkOut, Number(unit.basePrice), availabilities);
- *   // Optional: SELECT ... FOR UPDATE or advisory lock if exclusion constraint not available
- *   return tx.booking.create({ data: { userId, unitId, checkIn, checkOut, guests, currency: 'CDF', totalPrice: total, status: 'PENDING' } });
- * }, { isolationLevel: 'Serializable' });
- * ```
- *
- * DB-level safety: migration adds EXCLUDE USING gist (unitId WITH =, daterange(checkIn, checkOut) WITH &&)
- * WHERE (status IN ('PENDING','CONFIRMED')) when btree_gist is available. If not, this app guard is the fallback
- * and Serializable isolation reduces race window.
- */
-export const RESERVE_TRANSACTION_COMMENT = 'Use Serializable isolation + canBook guard; rely on DB EXCLUDE when available';
-
-/**
- * Minimal idempotency helper for payments
- */
-export function paymentIdempotencyKey(bookingId: string, attempt: number | string): string {
+export function paymentIdempotencyKey(bookingId: string, attempt: number): string {
   return `idem-${bookingId.slice(0, 8)}-${attempt}`;
 }
 
-
-// ───────────────── Nest wrapper ─────────────────
-
 @Injectable()
 export class BookingService {
-  isOverlapping = isOverlapping;
-  canBook = canBook;
-  calculateTotalPrice = calculateTotalPrice;
-  datesInRange = datesInRange;
-  nightsBetween = nightsBetween;
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventBus: EventBusService,
+  ) {}
 
-  async listBookings(query: { userId?: string; unitId?: string; status?: string }): Promise<unknown[]> {
-    return [{ query, note: 'booking.listBookings stub — Prisma booking schema' }];
+  async listBookings(query: { userId?: string; unitId?: string; status?: string }) {
+    const where: Record<string, unknown> = {};
+    if (query.userId) where.userId = query.userId;
+    if (query.unitId) where.unitId = query.unitId;
+    if (query.status) where.status = query.status;
+    return this.prisma.booking.findMany({ where, include: { unit: true } });
   }
-  async getBooking(id: string): Promise<unknown> { return { id, status: 'PENDING' }; }
-  async createBooking(dto: { unitId: string; checkIn: string; checkOut: string; guests: number; userId: string }): Promise<unknown> {
-    // Real impl: prisma.$transaction with canBook guard + calculateTotalPrice + EventBus emit booking.confirmed
+
+  async getBooking(id: string) {
+    return this.prisma.booking.findUnique({ where: { id }, include: { unit: true } });
+  }
+
+  async createBooking(dto: CreateBookingDto) {
     const checkIn = new Date(dto.checkIn);
     const checkOut = new Date(dto.checkOut);
-    // stub: validate shape then return
+
     if (checkOut <= checkIn) throw new Error('checkOut must be after checkIn');
-    return { id: 'stub-booking-id', ...dto, status: 'PENDING', currency: 'CDF' };
+
+    const unit = await this.prisma.unit.findUnique({ where: { id: dto.unitId } });
+    if (!unit) throw new Error(`Unit ${dto.unitId} not found`);
+
+    const availabilities = await this.prisma.availability.findMany({
+      where: { unitId: dto.unitId, date: { gte: checkIn, lt: checkOut } },
+    });
+
+    const existingBookings = await this.prisma.booking.findMany({
+      where: { unitId: dto.unitId, status: { in: ['PENDING', 'CONFIRMED'] } },
+    });
+
+    const check = canBook({ unit, checkIn, checkOut, guests: dto.guests, availabilities, existingBookings });
+    if (!check.ok) throw new Error(check.reason);
+
+    const totalPrice = calculateTotalPrice(checkIn, checkOut, unit.basePrice, availabilities);
+
+    const booking = await this.prisma.booking.create({
+      data: {
+        unitId: dto.unitId,
+        userId: dto.userId ?? 'unknown',
+        checkIn,
+        checkOut,
+        guests: dto.guests,
+        currency: dto.currency ?? 'CDF',
+        totalPrice,
+        status: 'PENDING',
+      },
+    });
+
+    this.eventBus.emitEvent('booking.created', booking);
+
+    return booking;
   }
-  async getAvailability(unitId: string, from: string, to: string): Promise<unknown> {
-    return { unitId, from, to, days: [] };
+
+  async getAvailability(unitId: string, from?: string, to?: string) {
+    const where: Record<string, unknown> = { unitId };
+    if (from && to) {
+      where.date = { gte: new Date(from), lt: new Date(to) };
+    }
+    const days = await this.prisma.availability.findMany({ where });
+    return { unitId, from, to, days };
   }
-  async upsertAvailability(unitId: string, body: unknown): Promise<unknown> {
-    return { unitId, ...(body as object) };
+
+  async upsertAvailability(unitId: string, body: { days: Array<{ date: string; priceOverride?: number; isAvailable?: boolean }> }) {
+    const results = [];
+    for (const day of body.days) {
+      const result = await this.prisma.availability.upsert({
+        where: { unitId_date: { unitId, date: new Date(day.date) } },
+        update: { priceOverride: day.priceOverride, isAvailable: day.isAvailable },
+        create: { unitId, date: new Date(day.date), priceOverride: day.priceOverride, isAvailable: day.isAvailable },
+      });
+      results.push(result);
+    }
+    return { unitId, ...body };
   }
 }

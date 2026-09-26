@@ -1,11 +1,17 @@
 export class CreateBookingDto {
   unitId!: string;
-  checkIn!: string; // YYYY-MM-DD
+  checkIn!: string;
   checkOut!: string;
   guests!: number;
+  userId?: string;
   currency?: string;
 }
-export class AvailabilityQueryDto { from!: string; to!: string; }
+
+export class AvailabilityQueryDto {
+  from!: string;
+  to!: string;
+}
+
 export class UpsertAvailabilityDto {
-  days!: { date: string; isAvailable: boolean; priceOverride?: string | null }[];
+  days!: Array<{ date: string; priceOverride?: number; isAvailable?: boolean }>;
 }

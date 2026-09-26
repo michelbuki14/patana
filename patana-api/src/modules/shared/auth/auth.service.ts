@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
-  // shared schema: User — identity & roles
-  async validateUser(email: string, _password: string): Promise<unknown> {
-    return { email, note: 'validateUser stub — check passwordHash, return User' };
+  constructor(private readonly prisma: PrismaService) {}
+
+  async validateUser(email: string, _password: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) return null;
+    return user;
   }
-  async me(userId: string): Promise<unknown> { return { userId }; }
+
+  async me(userId: string) {
+    return this.prisma.user.findUnique({ where: { id: userId } });
+  }
 }

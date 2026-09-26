@@ -1,8 +1,12 @@
 export class CreatePaymentDto {
   bookingId!: string;
-  amount!: string;
+  amount!: number;
   currency?: string;
-  method!: 'CARD' | 'MOBILE_MONEY' | 'BANK_TRANSFER' | 'CASH';
+  method?: string;
   idempotencyKey?: string;
 }
-export class ConfirmPaymentDto { status!: 'SUCCEEDED' | 'FAILED' | 'REFUNDED'; providerRef?: string; }
+
+export class ConfirmPaymentDto {
+  status?: string;
+  providerRef?: string;
+}

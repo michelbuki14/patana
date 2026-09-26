@@ -8,7 +8,7 @@ export class HealthController {
       status: 'ok',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
-      service: 'patana-api',
+      version: process.env.npm_package_version ?? '1.0.0',
     };
   }
 }
